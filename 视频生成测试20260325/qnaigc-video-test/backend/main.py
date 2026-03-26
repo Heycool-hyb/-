@@ -93,6 +93,8 @@ class TosPresignRequest(BaseModel):
 app = FastAPI(title="QNAIGC Video Test")
 logger = logging.getLogger("uvicorn.error")
 
+APP_BUILD_VERSION = "error-handling-v2"
+
 # 仅用于前端调试页面；内部环境下也可以收紧 allow_origins
 app.add_middleware(
     CORSMiddleware,
@@ -151,6 +153,14 @@ def _encode_object_key_for_url(key: str) -> str:
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+@app.get("/api/build")
+def api_build() -> Dict[str, str]:
+    """
+    用于快速确认线上服务是否部署了最新代码。
+    返回固定版本号，便于排查“改了但线上没更新”的情况。
+    """
+    return {"version": APP_BUILD_VERSION}
 
 @app.get("/api/debug/config")
 def debug_config() -> Dict[str, Any]:

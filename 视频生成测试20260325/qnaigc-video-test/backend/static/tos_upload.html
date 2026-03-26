@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>火山云对象存储上传</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      label {
+        display: block;
+        margin-top: 12px;
+        font-weight: 600;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        margin-top: 6px;
+        padding: 10px 12px;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 14px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      .status {
+        margin-top: 16px;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fafafa;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .progress {
+        margin-top: 10px;
+        height: 10px;
+        background: #eee;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: #3b82f6;
+        transition: width 0.2s ease;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>火山云对象存储上传</h2>
+    <p style="color:#666">
+      说明：这里采用“预签名直传”的方式（前端拿到上传地址后直接上传到 TOS）。
+      由于我当前在仓库里找不到你之前提供的 TOS 签名/上传函数，所以先做了页面与接口骨架。
+      你把 TOS 函数文件位置/关键函数发我，我就能把后端真正接上。
+    </p>
+
+    <div class="row">
+      <div>
+        <label for="fileInput">选择本地视频文件（mp4/mov）</label>
+        <input id="fileInput" type="file" accept="video/mp4,video/quicktime,video/*" />
+      </div>
+      <div>
+        <label for="objectKeyPrefix">对象存储路径前缀（例如）</label>
+        <input id="objectKeyPrefix" type="text" placeholder="generated/" value="generated/" />
+      </div>
+    </div>
+
+    <label for="bucket">Bucket（桶名）</label>
+    <input id="bucket" type="text" placeholder="your-bucket-name" />
+
+    <label for="endpoint">TOS Endpoint（如果后端不从环境变量读取）</label>
+    <input id="endpoint" type="text" placeholder="https://tos-xxx.volcengineapi.com" />
+
+    <label for="domain">可访问域名（可选，用于拼出最终 URL）</label>
+    <input id="domain" type="text" placeholder="https://your-cdn-domain.com 或者空" />
+
+    <button id="uploadBtn" type="button">上传到对象存储</button>
+    <button id="resetBtn" type="button">重置</button>
+
+    <div class="progress" aria-hidden="true">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <script src="/static/tos_upload.js"></script>
+  </body>
+</html>
+

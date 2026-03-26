@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QNAIGC Video Test</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial,
+          "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei",
+          sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      label {
+        display: block;
+        margin-top: 12px;
+        font-weight: 600;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        margin-top: 6px;
+        padding: 10px 12px;
+        box-sizing: border-box;
+      }
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .row-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+      }
+      button {
+        margin-top: 14px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      .status {
+        margin-top: 16px;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fafafa;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .video {
+        margin-top: 16px;
+      }
+      .progress {
+        margin-top: 10px;
+        height: 10px;
+        background: #eee;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: #3b82f6;
+        transition: width 0.2s ease;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>QNAIGC 视频生成测试页</h2>
+    <p>
+      输入：参考视频公网 URL + 文本 prompt；输出：生成的视频（调用
+      <code>POST /v1/videos</code> + <code>GET /v1/videos/{id}</code> 轮询）。
+    </p>
+
+    <div
+      id="metricsWrap"
+      style="
+        margin-top: 12px;
+        padding: 14px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+      "
+    >
+      <h3 style="margin-top: 0">当前任务统计</h3>
+      <div class="row-3">
+        <div>
+          <div style="font-weight: 600">Token</div>
+          <div class="status" id="metricsTokens" style="margin-top: 8px">—</div>
+        </div>
+        <div>
+          <div style="font-weight: 600">时长</div>
+          <div class="status" id="metricsDuration" style="margin-top: 8px">—</div>
+        </div>
+        <div>
+          <div style="font-weight: 600">费用（元）</div>
+          <div class="status" id="metricsCost" style="margin-top: 8px">—</div>
+        </div>
+      </div>
+      <div style="margin-top: 10px; color: #666; font-size: 12px">
+        费用按你提供的“元/秒”规则估算/结算；若当前组合没有对应单价，会显示“未配置单价”。
+      </div>
+    </div>
+    <div
+      id="metricsHistoryWrap"
+      style="
+        margin-top: 12px;
+        padding: 14px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+      "
+    >
+      <h3 style="margin-top: 0">每次结果明细（按视频）</h3>
+      <div id="metricsHistoryEmpty" style="color: #666">暂无结果。</div>
+      <div id="metricsHistoryList" style="display: grid; gap: 10px"></div>
+    </div>
+
+    <div
+      id="tosUploadWrap"
+      style="
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fafafa;
+      "
+    >
+      <h3 style="margin-top: 0">1）上传到对象存储（TOS）并获取公网 URL</h3>
+      <div style="color: #666; margin-bottom: 10px">
+        采用“预签名直传”：先调用后端获取上传地址，然后前端直接 PUT 到 TOS；上传成功后会自动回填到下方的参考视频 URL。
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="tosFileInput">选择本地视频文件（mp4/mov）</label>
+          <input id="tosFileInput" type="file" accept="video/mp4,video/quicktime,video/*" />
+        </div>
+        <div>
+          <label for="tosObjectKeyPrefix">对象存储路径前缀（例如）</label>
+          <input id="tosObjectKeyPrefix" type="text" placeholder="generated/" value="generated/" />
+        </div>
+      </div>
+
+      <label for="tosBucket">Bucket（桶名）</label>
+      <input id="tosBucket" type="text" placeholder="your-bucket-name" />
+
+      <label for="tosEndpoint">TOS Endpoint</label>
+      <input id="tosEndpoint" type="text" placeholder="https://tos-xxx.volcengineapi.com" />
+
+      <label for="tosDomain">可访问域名（可选，用于拼出最终 URL）</label>
+      <input id="tosDomain" type="text" placeholder="https://your-cdn-domain.com 或者空" />
+
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px">
+        <button id="tosUploadBtn" type="button">上传并回填参考视频 URL</button>
+        <button id="tosResetBtn" type="button">重置</button>
+      </div>
+
+      <div class="progress" aria-hidden="true">
+        <div class="progress-bar" id="tosProgressBar"></div>
+      </div>
+      <div class="status" id="tosStatus"></div>
+    </div>
+
+    <form id="form">
+      <label for="videoUrl">2）参考视频 URL（必须公网可访问，mp4/mov）</label>
+      <input id="videoUrl" name="videoUrl" type="url" placeholder="https://example.com/reference.mp4" />
+
+      <label for="prompt">文本 prompt（最大 2500 字符）</label>
+      <textarea id="prompt" name="prompt" placeholder="描述你想生成的新视频内容" required></textarea>
+
+      <div class="row-3">
+        <div>
+          <label for="seconds">seconds</label>
+          <select id="seconds" name="seconds">
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5" selected>5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+            <option value="13">13</option>
+            <option value="14">14</option>
+            <option value="15">15</option>
+          </select>
+        </div>
+        <div>
+          <label for="size">size</label>
+          <select id="size" name="size">
+            <option value="1920x1080" selected>1920x1080</option>
+            <option value="1080x1920">1080x1920</option>
+            <option value="1280x720">1280x720</option>
+            <option value="720x1280">720x1280</option>
+            <option value="1080x1080">1080x1080</option>
+            <option value="720x720">720x720</option>
+          </select>
+        </div>
+        <div>
+          <label for="mode">mode</label>
+          <select id="mode" name="mode">
+            <option value="std">std</option>
+            <option value="pro" selected>pro</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="referType">refer_type（参考视频用途）</label>
+          <select id="referType" name="referType">
+            <option value="base" selected>base（编辑/替换原视频）</option>
+            <option value="feature">feature（特征参考）</option>
+          </select>
+        </div>
+        <div>
+          <label for="keepOriginalSound">keep_original_sound</label>
+          <select id="keepOriginalSound" name="keepOriginalSound">
+            <option value="yes" selected>yes（保留原声）</option>
+            <option value="no">no（不保留原声）</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="submitBtn" type="submit">提交生成</button>
+      <button id="cancelBtn" type="button" style="display: none">停止轮询</button>
+    </form>
+
+    <div class="status" id="status"></div>
+
+    <div class="video" id="videoWrap" style="display: none">
+      <h3>生成结果</h3>
+      <video id="video" controls playsinline style="width: 100%; max-height: 560px"></video>
+      <div style="margin-top: 8px">
+        <a id="downloadLink" href="#" target="_blank" rel="noopener">打开/下载视频</a>
+      </div>
+    </div>
+
+    <div class="video" id="generatedTosWrap" style="margin-top: 16px">
+      <h3>生成结果公网 URL（上传到 TOS）</h3>
+      <div class="status" id="generatedTosStatus">尚未生成。</div>
+      <div style="margin-top: 8px">
+        <a
+          id="generatedTosLink"
+          href="#"
+          target="_blank"
+          rel="noopener"
+          style="display: none"
+        >打开公网 URL</a>
+      </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+

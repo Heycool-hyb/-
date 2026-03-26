@@ -1,0 +1,29 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtualenv
+.venv/
+venv/
+
+# Local secrets
+backend/.env
+
+# Logs
+*.log
+
+# Generated/upload artifacts
+backend/static/uploads/
+backend/static/generated/
+
+# Local media files (avoid huge commits)
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4v

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: qnaigc-video-test
+    env: docker
+    rootDir: backend
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: QNAIGC_API_KEY
+        sync: false
+      - key: TOS_ACCESS_KEY
+        sync: false
+      - key: TOS_SECRET_KEY
+        sync: false
+      - key: TOS_REGION
+        sync: false
+      - key: TOS_ENDPOINT
+        sync: false
+      - key: TOS_BUCKET
+        sync: false

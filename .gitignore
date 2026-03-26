@@ -36,3 +36,7 @@ build/
 out/
 .cache/
 
+# Nested git backups (from temporary renames)
+.git_bak/
+**/.git_bak/
+

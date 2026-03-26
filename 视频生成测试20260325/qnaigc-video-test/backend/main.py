@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from base64 import b64decode
@@ -7,8 +8,9 @@ from urllib.parse import quote, urlparse
 from uuid import uuid4
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -89,6 +91,7 @@ class TosPresignRequest(BaseModel):
 
 
 app = FastAPI(title="QNAIGC Video Test")
+logger = logging.getLogger("uvicorn.error")
 
 # 仅用于前端调试页面；内部环境下也可以收紧 allow_origins
 app.add_middleware(
@@ -149,6 +152,44 @@ def _encode_object_key_for_url(key: str) -> str:
 def index() -> FileResponse:
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
+@app.get("/api/debug/config")
+def debug_config() -> Dict[str, Any]:
+    # 仅返回“是否配置了”，不返回任何密钥内容。
+    _load_local_env_file()
+
+    def has(name: str) -> bool:
+        return bool(os.getenv(name, "").strip())
+
+    return {
+        "qnaigc": {
+            "QNAIGC_BASE_URL": QNAIGC_BASE_URL,
+            "has_QNAIGC_API_KEY": has("QNAIGC_API_KEY"),
+            "KLING_MODEL_ID": KLING_MODEL_ID,
+        },
+        "tos": {
+            "has_TOS_ACCESS_KEY": has("TOS_ACCESS_KEY"),
+            "has_TOS_SECRET_KEY": has("TOS_SECRET_KEY"),
+            "has_TOS_REGION": has("TOS_REGION"),
+            "has_TOS_ENDPOINT": has("TOS_ENDPOINT"),
+            "has_TOS_BUCKET": has("TOS_BUCKET"),
+        },
+    }
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # 把未捕获异常统一转成 JSON，避免默认 text/plain 错误页。
+    logger.exception("Unhandled server error on %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "message": "Internal server error",
+                "path": request.url.path,
+            }
+        },
+    )
+
 
 def _get_api_key() -> str:
     # 优先读取环境变量；如果未设置，则尝试读取后端目录下的 `./.env` 文件
@@ -207,9 +248,12 @@ async def _create_video_job(req: VideoJobCreateRequest) -> Dict[str, Any]:
     api_key = _get_api_key()
     url = f"{QNAIGC_BASE_URL}/videos"
     video_url = (req.video_url or "").strip()
+    parsed = urlparse(video_url)
     # QNAIGC 需要“云端可访问”的视频地址；如果给的是 localhost/本机地址或相对路径，云端无法读取
     if (
         not video_url
+        or parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
         or video_url.startswith("/")
         or "localhost" in video_url
         or "127.0.0.1" in video_url
@@ -217,7 +261,7 @@ async def _create_video_job(req: VideoJobCreateRequest) -> Dict[str, Any]:
         raise HTTPException(
             status_code=400,
             detail={
-                "message": "QNAIGC 需要公网可访问的 video_url。请提供云端能直接访问到的 MP4/MOV 链接，不要使用 localhost/127.0.0.1 或相对路径。",
+                "message": "QNAIGC 需要公网可访问的 video_url。请提供以 http:// 或 https:// 开头、云端能直接访问到的 MP4/MOV 链接，不要使用 localhost/127.0.0.1 或相对路径。",
             },
         )
 

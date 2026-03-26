@@ -400,12 +400,16 @@ async function createJob(payload) {
       responseField && typeof responseField === "object"
         ? JSON.stringify(responseField, null, 2)
         : responseField;
-    const msg =
+    const rawMsg =
       responseStr ||
       detail?.message ||
       (typeof detail === "object" ? JSON.stringify(detail, null, 2) : detail) ||
       bodyText ||
       res.statusText;
+    const msg =
+      rawMsg === null || typeof rawMsg === "undefined" || String(rawMsg).trim() === ""
+        ? `HTTP ${res.status}`
+        : String(rawMsg);
     throw new Error(`create job failed: ${msg}`);
   }
 
@@ -464,6 +468,11 @@ function firstVideoUrl(taskResult) {
   const videos = taskResult?.videos;
   if (!Array.isArray(videos) || videos.length === 0) return null;
   return videos[0]?.url || null;
+}
+
+function getTaskResultFromStatus(statusSnapshot) {
+  // 后端可能返回 task_result 或 taskResult
+  return statusSnapshot?.task_result || statusSnapshot?.taskResult || {};
 }
 
 async function downloadToLocal(videoUrl) {
@@ -532,6 +541,21 @@ function toAbsoluteUrl(url) {
   return new URL(url, window.location.origin).toString();
 }
 
+function normalizeVideoUrlInput(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+
+  // 已是标准绝对 URL
+  if (/^https?:\/\//i.test(v)) return v;
+  // 协议相对 URL（//example.com/a.mp4）
+  if (/^\/\//.test(v)) return `https:${v}`;
+  // 站内相对路径
+  if (v.startsWith("/")) return toAbsoluteUrl(v);
+  // 常见“漏写协议”场景：example.com/a.mp4
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(v)) return `https://${v}`;
+  return v;
+}
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   stopPolling();
@@ -568,7 +592,10 @@ form.addEventListener("submit", async (e) => {
   videoWrap.style.display = "none";
 
   try {
-    payload.video_url = toAbsoluteUrl(payload.video_url);
+    payload.video_url = normalizeVideoUrlInput(payload.video_url);
+    if (!/^https?:\/\//i.test(payload.video_url)) {
+      throw new Error("参考视频 URL 格式不正确，请填写可公网访问的完整链接（以 http:// 或 https:// 开头）。");
+    }
 
     const created = await createJob(payload);
     const jobId = created.id;
@@ -613,6 +640,8 @@ form.addEventListener("submit", async (e) => {
       try {
         const s = await getJobStatus(jobId);
         lastJobStatusSnapshot = s;
+        const taskResult = getTaskResultFromStatus(s);
+        const hasGeneratedVideoUrlNow = !!firstVideoUrl(taskResult);
         const elapsedSeconds = jobStartedAtMs ? (Date.now() - jobStartedAtMs) / 1000 : null;
         const elapsed = elapsedSeconds !== null ? formatSeconds(elapsedSeconds) : "";
         setStatus(buildPollingStatusText(s, elapsed));
@@ -621,18 +650,23 @@ form.addEventListener("submit", async (e) => {
           statusSnapshot: s,
           elapsedSeconds: elapsedSeconds ?? null,
           expectedVideoSeconds: Number(payload.seconds) || null,
-          actualVideoSeconds: extractVideoDurationSecondsFromTaskResult(s?.task_result || s?.taskResult),
+          actualVideoSeconds: extractVideoDurationSecondsFromTaskResult(taskResult),
           mode: payload.mode,
           hasReferenceVideo,
           hasSound: payload.keep_original_sound === "yes",
         });
 
-        if (s.status === "completed") {
+        const normalizedStatus = String(s?.status || "").toLowerCase();
+        const isFailure = ["failed", "cancelled", "canceled", "error"].includes(normalizedStatus);
+        const isCompleted = ["completed", "succeeded", "success", "done"].includes(normalizedStatus);
+
+        // 有些后端可能不会严格返回 status=completed；只要 task_result 已经带上视频 URL 就直接渲染结果。
+        if (isCompleted || hasGeneratedVideoUrlNow) {
           stopPolling();
-          await renderResult(s.task_result);
+          await renderResult(taskResult);
 
           // completed 后用实际视频时长再刷新一次费用（若接口给了 duration）
-          const actualVideoSeconds = extractVideoDurationSecondsFromTaskResult(s?.task_result || s?.taskResult);
+          const actualVideoSeconds = extractVideoDurationSecondsFromTaskResult(taskResult);
           const elapsedSecondsFinal = jobStartedAtMs ? (Date.now() - jobStartedAtMs) / 1000 : null;
           updateMetrics({
             statusSnapshot: s,
@@ -653,9 +687,9 @@ form.addEventListener("submit", async (e) => {
           });
           return;
         }
-        if (["failed", "cancelled"].includes(s.status)) {
+        if (isFailure) {
           stopPolling();
-          await renderResult(s.task_result || {});
+          await renderResult(taskResult || {});
           return;
         }
 

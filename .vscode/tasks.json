@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "安装依赖 (backend)",
+      "type": "shell",
+      "command": "rm -rf .venv && python3 -m venv .venv && .venv/bin/python -m pip install -U pip && .venv/bin/python -m pip install -r requirements.txt",
+      "options": {
+        "cwd": "${workspaceFolder}/视频生成测试20260325/qnaigc-video-test/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "启动后端并等待就绪 (8000)",
+      "type": "shell",
+      "command": "pkill -f \"uvicorn main:app --host 127.0.0.1 --port 8000\" >/dev/null 2>&1 || true; nohup .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 > uvicorn_8000.log 2>&1 & for i in $(seq 1 30); do .venv/bin/python -c \"import socket,sys; s=socket.socket(); s.settimeout(0.5); r=s.connect_ex(('127.0.0.1',8000)); s.close(); sys.exit(0 if r==0 else 1)\" && (echo backend ready; exit 0); sleep 1; done; echo backend not ready; exit 1",
+      "dependsOn": ["安装依赖 (backend)"],
+      "dependsOrder": "sequence",
+      "options": {
+        "cwd": "${workspaceFolder}/视频生成测试20260325/qnaigc-video-test/backend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
+

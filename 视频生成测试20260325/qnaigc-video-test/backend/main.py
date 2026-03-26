@@ -284,36 +284,108 @@ async def _create_video_job(req: VideoJobCreateRequest) -> Dict[str, Any]:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "Accept": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, headers=headers, json=payload)
-        # 直接把 error body 返回给前端，方便定位参数问题
+        try:
+            r = await client.post(url, headers=headers, json=payload)
+        except httpx.TimeoutException as e:
+            raise HTTPException(
+                status_code=504,
+                detail={"message": "QNAIGC request timeout", "error": str(e)},
+            ) from e
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "QNAIGC request failed", "error": str(e)},
+            ) from e
+
+        # 先读取一次 body，避免 r.json() 失败后无法取到原始内容
+        resp_text = (r.text or "").strip()
+
+        def _parse_maybe_json() -> Any:
+            # 有些服务会在 JSON 失败时返回文本；尽量把信息结构化
+            try:
+                ct = (r.headers.get("content-type") or "").lower()
+                if "application/json" in ct or ct.endswith("+json"):
+                    return r.json()
+            except Exception:
+                pass
+            try:
+                return r.json()
+            except Exception:
+                return resp_text
+
         if r.status_code >= 400:
             raise HTTPException(
                 status_code=r.status_code,
                 detail={
                     "message": "Failed to create video job",
-                    "response": r.text,
+                    "response": _parse_maybe_json(),
                 },
             )
-        return r.json()
+
+        try:
+            return r.json()
+        except Exception:
+            # 2xx 但返回非 JSON：把原始 body 返回，避免前端只能看到 500
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "QNAIGC returned non-JSON response", "response": resp_text},
+            )
 
 
 async def _get_video_job_status(job_id: str) -> Dict[str, Any]:
     api_key = _get_api_key()
     url = f"{QNAIGC_BASE_URL}/videos/{job_id}"
 
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
     async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.get(url, headers=headers)
+        try:
+            r = await client.get(url, headers=headers)
+        except httpx.TimeoutException as e:
+            raise HTTPException(
+                status_code=504,
+                detail={"message": "QNAIGC request timeout", "error": str(e)},
+            ) from e
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "QNAIGC request failed", "error": str(e)},
+            ) from e
+
+        resp_text = (r.text or "").strip()
+
+        def _parse_maybe_json() -> Any:
+            try:
+                ct = (r.headers.get("content-type") or "").lower()
+                if "application/json" in ct or ct.endswith("+json"):
+                    return r.json()
+            except Exception:
+                pass
+            try:
+                return r.json()
+            except Exception:
+                return resp_text
+
         if r.status_code >= 400:
             raise HTTPException(
                 status_code=r.status_code,
-                detail={"message": "Failed to get video job status", "response": r.text},
+                detail={
+                    "message": "Failed to get video job status",
+                    "response": _parse_maybe_json(),
+                },
             )
-        return r.json()
+
+        try:
+            return r.json()
+        except Exception:
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "QNAIGC returned non-JSON response", "response": resp_text},
+            )
 
 
 @app.post("/api/video-jobs", response_model=VideoJobCreateResponse)
@@ -323,6 +395,12 @@ async def create_video_job(req: VideoJobCreateRequest = Body(...)) -> VideoJobCr
     except RuntimeError as e:
         # 例如：缺少 QNAIGC_API_KEY 时，返回可读的 JSON 错误
         raise HTTPException(status_code=500, detail={"message": str(e)})
+    except HTTPException:
+        # 已经是可读的 JSON 错误，直接透传给 FastAPI
+        raise
+    except Exception as e:
+        # 避免非预期异常导致纯文本 500
+        raise HTTPException(status_code=500, detail={"message": "Internal server error", "error": str(e)})
     job_id = data.get("id")
     if not job_id:
         raise HTTPException(status_code=500, detail={"message": "Missing 'id' in response", "data": data})
@@ -335,6 +413,10 @@ async def get_video_job(job_id: str) -> VideoJobStatusResponse:
         data = await _get_video_job_status(job_id)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail={"message": str(e)})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"message": "Internal server error", "error": str(e)})
     return VideoJobStatusResponse(
         id=data.get("id", job_id),
         status=data.get("status", "unknown"),
